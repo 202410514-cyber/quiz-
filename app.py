@@ -55,7 +55,21 @@ HOME_HTML = """
     <p style="color: var(--text-muted); margin-bottom: 25px;">단어를 보고 빠르게 뜻을 맞춰보세요! 시간이 끝나기 전에 최대한 스코어를 올려보세요.</p>
     {% if words|length > 0 %}
         <form action="/start_quiz" method="post" style="max-width: 350px; margin: 0 auto;">
-            <button type="submit" class="accent-btn">🔥 게임 시작하기</button>
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; text-align: left; margin-bottom: 10px; color: var(--text-muted); font-size: 14px; font-weight: 600; letter-spacing: 0.5px;">🎯 도전할 카테고리 선택</label>
+                <div style="position: relative;">
+                    <select name="category" onfocus="this.style.borderColor='var(--primary)'; this.style.boxShadow='0 0 0 4px rgba(99, 102, 241, 0.2)';" onblur="this.style.borderColor='rgba(99,102,241,0.4)'; this.style.boxShadow='inset 0 2px 10px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.1)';" style="width: 100%; appearance: none; -webkit-appearance: none; padding: 16px 20px; border-radius: 14px; border: 1px solid rgba(99,102,241,0.4); background: rgba(15, 23, 42, 0.7); color: #f8fafc; font-size: 16px; font-family: 'Outfit', 'Inter', sans-serif; font-weight: 500; outline: none; cursor: pointer; transition: all 0.3s ease; box-shadow: inset 0 2px 10px rgba(0,0,0,0.3), 0 4px 6px rgba(0,0,0,0.1);">
+                        <option value="" style="background: #1e1b4b; color: #fff;">🌍 모든 카테고리 (전체)</option>
+                        {% for group in words|groupby('cat') %}
+                        <option value="{{ group.grouper }}" style="background: #1e1b4b; color: #fff;">📁 {{ group.grouper }} ({{ group.list|length }}개)</option>
+                        {% endfor %}
+                    </select>
+                    <div style="position: absolute; right: 20px; top: 50%; transform: translateY(-50%); pointer-events: none;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="accent-btn" style="margin-top: 0; box-shadow: 0 8px 25px rgba(244, 63, 94, 0.4);">🔥 게임 시작하기</button>
         </form>
     {% else %}
         <p style="color: var(--accent); font-weight: bold;">[!] 퀴즈를 시작하려면 아래에서 단어를 한 개 이상 추가해 주세요.</p>
@@ -87,9 +101,16 @@ HOME_HTML = """
                     <summary>📁 {{ group.grouper }} ({{ group.list|length }}개)</summary>
                     <div style="margin-top: 15px;">
                     {% for w in group.list %}
-                        <div class="word-row">
-                            <span class="word-en">{{ w.en }}</span> 
-                            <span class="word-ko">{{ w.ko }}</span>
+                        <div class="word-row" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <span class="word-en">{{ w.en }}</span> 
+                                <span class="word-ko">{{ w.ko }}</span>
+                            </div>
+                            <form action="/delete" method="POST" style="margin: 0; display: inline-block;">
+                                <input type="hidden" name="en" value="{{ w.en }}">
+                                <input type="hidden" name="cat" value="{{ w.cat }}">
+                                <button type="submit" style="padding: 6px 14px; margin: 0; background: rgba(244,63,94,0.05); color: var(--accent); border: 1px solid rgba(244,63,94,0.2); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; width: auto; text-transform: none; letter-spacing: 0;" onmouseover="this.style.background='rgba(244,63,94,0.15)'; this.style.borderColor='rgba(244,63,94,0.4)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.background='rgba(244,63,94,0.05)'; this.style.borderColor='rgba(244,63,94,0.2)'; this.style.transform='none'">삭제</button>
+                            </form>
                         </div>
                     {% endfor %}
                     </div>
@@ -283,18 +304,45 @@ def add():
     })
     return redirect(url_for("home"))
 
+@app.route("/delete", methods=["POST"])
+def delete_word():
+    user = session.get("user")
+    if not user: return redirect(url_for("home"))
+    
+    en = request.form.get("en")
+    cat = request.form.get("cat")
+    
+    if en and cat and user in user_words:
+        for i, w in enumerate(user_words[user]):
+            if w.get("en") == en and w.get("cat") == cat:
+                del user_words[user][i]
+                break
+                
+    return redirect(url_for("home"))
+
 @app.route("/start_quiz", methods=["POST"])
 def start_quiz():
     user = session.get("user")
     if not user or not user_words.get(user):
         return redirect(url_for("home"))
         
+    category = request.form.get("category", "")
+    session['quiz_category'] = category
+
+    quiz_words = user_words[user]
+    if category:
+        quiz_words = [w for w in quiz_words if w.get('cat') == category]
+        
+    if not quiz_words:
+        quiz_words = user_words[user]
+        session['quiz_category'] = ""
+        
     # 게임 셋팅: 60초 게임 타이머 및 점수 초기화
     session['quiz_end_time'] = time.time() + 60
     session['game_score'] = 0
     
     # 첫 단어 픽
-    first_word = random.choice(user_words[user])
+    first_word = random.choice(quiz_words)
     session['current_word_en'] = first_word['en']
     session['current_word_ko'] = first_word['ko']
     
@@ -334,7 +382,15 @@ def submit_answer():
         session['game_score'] = session.get('game_score', 0) + 10
         
     # 다음 단어를 위해 랜덤 추출
-    next_word = random.choice(user_words[user])
+    category = session.get('quiz_category', '')
+    quiz_words = user_words[user]
+    if category:
+        quiz_words = [w for w in quiz_words if w.get('cat') == category]
+        
+    if not quiz_words:
+        quiz_words = user_words[user]
+        
+    next_word = random.choice(quiz_words)
     session['current_word_en'] = next_word['en']
     session['current_word_ko'] = next_word['ko']
     
